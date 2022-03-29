@@ -1,39 +1,16 @@
 #!/usr/bin/env node
 
-/*
-
-prompt:
-
-1. Basic QR Code Server implementation
-
-Write a basic server for transferring a file between peers. The peer that runs the server should be able to display a QR code that a peer that wants the file can scan to download the file from the server peer. This is an approach we are using to transfer files between devices without using the internet.
-
-first pass approach:
-
-- get file from process.argv
-- generate random key
-- produce qr code from key
-- add file to hyperdrive for replication
-- register with hyperswarm DHT?
-- serve qr code at address (localhost:3000 for now)
-
-time limit: 1hr
-
-*/
-
-// 1
-
 const fs = require('fs')
 const Hyperdrive = require('hyperdrive')
 const ram = require('random-access-memory')
 const argv = require('minimist')(process.argv.slice(2))
 const path = require('path')
-// const b4a = require('b4a')
 const b32 = require('hi-base32')
 const crypto = require('crypto')
 const Hyperswarm = require('hyperswarm')
 const QRCode = require('qrcode')
 const http = require('http')
+// const b4a = require('b4a')
 
 const PORT = process.env.PORT || 3000
 
@@ -50,6 +27,7 @@ async function start () {
   const key = generateRandomKey()
 
   // create drive and add file
+  // TODO: not sure hyperdrive is the right approach in this context
   const drive = new Hyperdrive(ram, null) // create
 
   // trying to follow newer conventions from hypercore protocol walkthroughs
@@ -61,7 +39,7 @@ async function start () {
 
   // pass file info to swarm server when we figure out streaming/replicating
   await startSwarmServer(key)
-  await startQRCodeServer(key)
+  await startQRCodeServer(key, fileName)
 
   // figuring out peer connection & streaming...
   testClient(key)
@@ -78,8 +56,8 @@ async function startSwarmServer (key) {
     // TODO: TODO: figure out how to:
     // (a) replicate hyperdrive in this context? (not 100% clear on how to achieve this in this context)
     // (b) stream directly via "an end-to-end (Noise) encrypted Duplex stream" (would need to find some docs for this, not familiar with methods)
-    console.log(Object.keys(conn))
-    conn.write('this is a server connection')
+    // console.log(Object.keys(conn))
+    conn.write('file goes here 🤫')
     conn.end()
   })
 
@@ -87,16 +65,20 @@ async function startSwarmServer (key) {
   await discovery.flushed()
 
   console.log(`listening for peer connections at ${key.str}`)
+
+  // TODO: Is there any official teardown on swarm servers? Feels like I'm leaving junk in the DHT.
 }
 
 // Serve QR Code (default: http:localhost:3000)
-async function startQRCodeServer (key) {
+async function startQRCodeServer (key, fileName) {
   // generate QR Code
   const qr = await QRCode.toDataURL(key.str)
 
   const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(`<img src="${qr}">`)
+    const tpl = fs.readFileSync('index.html', { encoding: 'utf-8' })
+    const index = tpl.replace(/{{fileName}}/g, fileName).replace(/{{qr}}/, qr)
+    res.end(index)
   })
 
   server.listen(PORT)
@@ -107,7 +89,7 @@ async function startQRCodeServer (key) {
 async function testClient (key) {
   const swarm2 = new Hyperswarm()
   swarm2.on('connection', (conn, info) => {
-    conn.on('data', data => console.log('client got message:', data.toString()))
+    conn.on('data', data => console.log('test client got message:', data.toString()))
   })
   swarm2.join(key.buf, { server: false, client: true })
   await swarm2.flush() // Waits for the swarm to connect to pending peers.
