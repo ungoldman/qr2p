@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 const fs = require('fs')
-const Hyperdrive = require('hyperdrive')
-const ram = require('random-access-memory')
 const argv = require('minimist')(process.argv.slice(2))
 const path = require('path')
 const b32 = require('hi-base32')
@@ -11,6 +9,7 @@ const Hyperswarm = require('hyperswarm')
 const QRCode = require('qrcode')
 const http = require('http')
 // const b4a = require('b4a')
+const { pipeline } = require('stream/promises')
 
 const PORT = process.env.PORT || 3000
 
@@ -26,19 +25,8 @@ async function start () {
   const fileName = path.basename(filePath)
   const key = generateRandomKey()
 
-  // create drive and add file
-  // TODO: not sure hyperdrive is the right approach in this context
-  const drive = new Hyperdrive(ram, null) // create
-
-  // trying to follow newer conventions from hypercore protocol walkthroughs
-  await drive.promises.ready()
-
-  const stream = fs.createReadStream(filePath).pipe(drive.createWriteStream(`/${fileName}`))
-  // wait for stream to finish? my stream brain no longer works
-  await new Promise(resolve => stream.on('finish', resolve))
-
   // pass file info to swarm server when we figure out streaming/replicating
-  await startSwarmServer(key)
+  await startSwarmServer(key, filePath)
   await startQRCodeServer(key, fileName)
 
   // figuring out peer connection & streaming...
@@ -46,20 +34,11 @@ async function start () {
 }
 
 // connect to hyperswarm DHT
-async function startSwarmServer (key) {
+async function startSwarmServer (key, filePath) {
   const swarm = new Hyperswarm()
 
   swarm.on('connection', (conn, info) => {
-    // https://github.com/hyperswarm/hyperswarm#swarmonconnection-socket-peerinfo--
-    // theoretically could just stream the file through conn? I think?
-    // methods not documented
-
-    // TODO: TODO: figure out how to:
-    // (a) replicate hyperdrive in this context? (not 100% clear on how to achieve this in this context)
-    // (b) stream directly via "an end-to-end (Noise) encrypted Duplex stream" (would need to find some docs for this, not familiar with methods)
-    // console.log(Object.keys(conn))
-    conn.write('file goes here 🤫')
-    conn.end()
+    fs.createReadStream(filePath).pipe(conn)
   })
 
   const discovery = swarm.join(key.buf, { server: true, client: false })
@@ -67,7 +46,8 @@ async function startSwarmServer (key) {
 
   console.log(`listening for peer connections at ${key.str}`)
 
-  // TODO: Is there any official teardown on swarm servers? Feels like I'm leaving junk in the DHT.
+  // TODO: remove DHT entry on process exit
+  // TODO: discovery.destroy
 }
 
 // Serve QR Code (default: http://localhost:3000)
@@ -89,11 +69,14 @@ async function startQRCodeServer (key, fileName) {
 // testing...
 async function testClient (key) {
   const swarm2 = new Hyperswarm()
-  swarm2.on('connection', (conn, info) => {
-    conn.on('data', data => console.log('test client got message:', data.toString()))
+  swarm2.on('connection', async (conn, info) => {
+    console.log('swarm2 connected!')
+    await pipeline(conn, fs.createWriteStream('./output.txt'))
+    console.log('done!')
   })
   swarm2.join(key.buf, { server: false, client: true })
   await swarm2.flush() // Waits for the swarm to connect to pending peers.
+  // TODO: discovery.destroy
 }
 
 // copied some methods from hyperbeam D:
