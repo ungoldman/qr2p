@@ -53,6 +53,7 @@ async function startSwarmServer (key) {
     // https://github.com/hyperswarm/hyperswarm#swarmonconnection-socket-peerinfo--
     // theoretically could just stream the file through conn? I think?
     // methods not documented
+
     // TODO: TODO: figure out how to:
     // (a) replicate hyperdrive in this context? (not 100% clear on how to achieve this in this context)
     // (b) stream directly via "an end-to-end (Noise) encrypted Duplex stream" (would need to find some docs for this, not familiar with methods)
@@ -69,7 +70,7 @@ async function startSwarmServer (key) {
   // TODO: Is there any official teardown on swarm servers? Feels like I'm leaving junk in the DHT.
 }
 
-// Serve QR Code (default: http:localhost:3000)
+// Serve QR Code (default: http://localhost:3000)
 async function startQRCodeServer (key, fileName) {
   // generate QR Code
   const qr = await QRCode.toDataURL(key.str)
@@ -96,6 +97,7 @@ async function testClient (key) {
 }
 
 // copied some methods from hyperbeam D:
+// https://github.com/mafintosh/hyperbeam/blob/35269d8fe2b486843fd324881e71a4e9f2cc395b/index.js#L180-L186
 
 function toBase32 (buf) {
   return b32.encode(buf).replace(/=/g, '').toLowerCase()
